@@ -8,14 +8,30 @@ from bson.json_util import dumps
 from datetime import datetime
 import hashlib
 import os
+from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
-client = MongoClient(os.environ.get("mongo_uri")) # found in environment variables. use ('127.0.0.1' , 27017) or other if running locally
+client = MongoClient(os.getenv("connection_string")) # found in environment variables. use ('127.0.0.1' , 27017) or other if running locally
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 60 * 60 * 24  # 1 day
 db = client["coupons_db"]
 coll = db["coupons"]
 
+jwt = JWTManager(app)
+
+# login routes
+from auth import auth_bp, init_auth
+
+init_auth(db)
+app.register_blueprint(auth_bp)
+
+print("\nREGISTERED ROUTES:")
+for rule in app.url_map.iter_rules():
+    print(rule)
 
 def hashDomain(domain):
     return hashlib.sha256(domain.encode()).hexdigest()[:5]
@@ -69,34 +85,72 @@ def update():
         coll.update_one({'_id': coupon['_id']}, {'$set': {'hidden': new['hidden']}})
     return jsonify({"success": True, "message": "Coupons updated."})
 
-@app.route("/add_coupon", methods=["POST"])  
+@app.route("/add_coupon", methods=["POST"])
+@jwt_required(optional=True)
 def add_coupon():
     data = request.json
     website = data["website"]
     code = data["coupon"]
     desc = data['desc']
     couponType = data['type']
+
+    # optional identity from JWT
+    user_id = get_jwt_identity()  # None if anonymous
     
-    if couponType =='expires':
-        coupon = {"website": website, "code": code, "rating": 0, "desc": desc, "hash": hashDomain(website), 'expiryDate':data['expiryDate']}
+    coupon = {
+    "website": website,
+    "code": code,
+    "rating": 0,
+    "desc": desc,
+    "hash": hashDomain(website),
+    "user_id": user_id
+    }
 
+    if couponType == 'expires':
+        coupon["expiryDate"] = data['expiryDate']
     elif couponType == 'seasonal':
-        coupon = {"website": website, "code": code, "rating": 0, "desc": desc, "hash": hashDomain(website), 'expiryDate':data['expiryDate'] ,  'startDate': data['startDate']}
-
-    else:
-        coupon = {"website": website, "code": code, "rating": 0, "desc": desc, "hash": hashDomain(website)}
+        coupon["expiryDate"] = data['expiryDate']
+        coupon["startDate"] = data['startDate']
 
     result = coll.insert_one(coupon)
 
     return jsonify({"success": True, "coupon_id": str(result.inserted_id)})
 
 @app.route("/rate_coupon", methods=["POST"])
+@jwt_required(optional=True)
 def rate_coupon():
+    user_id = get_jwt_identity()  # None if anonymous
     data = request.json
     coupon_id = data.get("coupon_id")
     rating_change = data.get("rating_change")
+
+    if not coupon_id or rating_change is None:
+        return jsonify({"success": False, "message": "Invalid request"}), 400
+
+    try:
+        coupon = coll.find_one({"_id": ObjectId(coupon_id)})
+    except Exception as e:
+        return jsonify({"success": False, "message": "Invalid coupon_id"}), 400
+
+    if not coupon:
+        return jsonify({"success": False, "message": "Coupon not found"}), 404
+
+    # Check if user has already rated
+    if user_id and user_id in coupon.get("rated_by", []):
+        return jsonify({"success": False, "message": "Already rated"}), 403
+
+    new_rating = coupon.get("rating", 0) + rating_change
+    update_fields = {"rating": new_rating}
+
+    if new_rating < 0:
+        update_fields["hidden"] = True
+
+    if user_id:
+        update_fields["rated_by"] = coupon.get("rated_by", []) + [user_id]
+
+    coll.update_one({"_id": ObjectId(coupon_id)}, {"$set": update_fields})
+    return jsonify({"success": True, "deleted": new_rating < 0})
     
-    print(f"Received coupon_id: {coupon_id}, rating_change: {rating_change}")
 
     try:
         coupon = coll.find_one({"_id": ObjectId(coupon_id)})
@@ -122,4 +176,4 @@ def display():
 
 
 if __name__ == "__main__":
-    app.run(host="::", port=5000)
+    app.run(port=5000)

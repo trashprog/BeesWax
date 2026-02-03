@@ -1,16 +1,124 @@
 document.addEventListener("DOMContentLoaded", async () => {
+  console.log("chrome.storage exists?", chrome.storage);
+
+  // Elements
   const addCouponButton = document.getElementById("add-coupon");
   const couponSection = document.getElementById("section");
   const toggleExpiry = document.getElementById("toggle-expiry");
   const toggleSeasonal = document.getElementById("toggle-seasonal");
+  const loginBtn = document.getElementById("login-btn");
+  const signupBtn = document.getElementById("signup-btn");
+  const authBar = document.getElementById("auth-bar");
+  const authForm = document.getElementById("auth-form");
+  const submitAuth = document.getElementById("submit-auth");
+  const cancelAuth = document.getElementById("cancel-auth");
+  const emailInput = document.getElementById("email-input");
+  const passwordInput = document.getElementById("password-input");
+  const logoutBtn = document.getElementById("logout-btn");
 
-  const server = "https://beeswax.onrender.com";
+  let jwtToken = null;
+  let authMode = null; // 'login' or 'signup'
 
-  var type = 'coupon';
+  const server = "http://localhost:5000";
+
+  loginBtn.addEventListener("click", () => {
+    authMode = "login";
+    authBar.style.display = "none";
+    authForm.style.display = "flex";
+    submitAuth.textContent = "Login";
+  });
+
+  logoutBtn.addEventListener("click", () => {
+  chrome.storage.local.remove("jwt", () => {
+    console.log("Logged out");
+    // reset UI
+    couponSection.innerHTML = '<p>No coupons available for this website.</p>';
+    loginBtn.style.display = "inline-block";
+    signupBtn.style.display = "inline-block";
+    logoutBtn.style.display = "none";
+    document.getElementById("user-status").style.display = "none";
+  });
+});
+
+
+  signupBtn.addEventListener("click", () => {
+    authMode = "signup";
+    authBar.style.display = "none";
+    authForm.style.display = "flex";
+    submitAuth.textContent = "Sign Up";
+  });
+
+  cancelAuth.addEventListener("click", () => {
+    authForm.style.display = "none";
+    authBar.style.display = "flex";
+    emailInput.value = "";
+    passwordInput.value = "";
+  });
+
+  submitAuth.addEventListener("click", async () => {
+    const email = emailInput.value;
+    const password = passwordInput.value;
+    if (!email || !password) return alert("Please fill in both fields");
+    
+    try {
+      if (authMode === "login") {
+        const res = await fetch(`${server}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (data.access_token) {
+          jwtToken = data.access_token;
+          chrome.storage.local.set({ jwt: jwtToken }, () => {
+            console.log("JWT stored");
+          });
+
+          // Update UI immediately
+          loginBtn.style.display = "none";
+          signupBtn.style.display = "none";
+          logoutBtn.style.display = "inline-block";  // <-- show logout
+
+          authForm.style.display = "none";
+          authBar.style.display = "none";
+
+          alert("Logged in!");
+        } else alert("Login failed");
+      } else if (authMode === "signup") {
+        const res = await fetch(`${server}/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        if (res.ok) {
+          alert("Account created! Please log in.");
+          authForm.style.display = "none";
+          authBar.style.display = "flex";
+        } else {
+          const data = await res.json();
+          alert(data.error || "Signup failed");
+        }
+      }
+    } catch (err) {
+      console.error("Auth error:", err);
+      alert("Auth request failed");
+    }
+  });
+
+  // Load token on startup
+ chrome.storage.local.get(["jwt"], (result) => {
+  if (result.jwt) {
+    jwtToken = result.jwt;
+    loginBtn.style.display = "none";
+    signupBtn.style.display = "none";
+    logoutBtn.style.display = "inline-block"; // show logout
+  }
+});
   
   chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
     const url = new URL(tabs[0].url);
     const domain = url.hostname;
+    console.log("Domain being hashed:", domain);
 
     const encoder = new TextEncoder();
     crypto.subtle.digest("SHA-256", encoder.encode(domain))
@@ -19,53 +127,29 @@ document.addEventListener("DOMContentLoaded", async () => {
           .map(b => b.toString(16).padStart(2, "0"))
           .join("")
           .slice(0, 5);
-    
 
+        console.log("Full hash:", hashedDomain);
+        console.log("First 5:",hashedDomain.slice(0, 5));
         const currSite = document.querySelector(".curr_site");
         if (currSite) {
           currSite.textContent = " to " + domain;
         }
 
-        fetch(`${server}/check_website?hashedDomain=${hashedDomain}`)
-          .then((response) => response.json())
-          .then((data) => {
-            
-            if (data.success && data.coupons.length > 0) {
-              let coupons = data.coupons;
-             coupons = coupons.filter(coupon => coupon.website === domain);
-              
-              if (coupons.length > 0) {
-                couponSection.innerHTML = ""; 
+       chrome.storage.local.get(["jwt"], (result) => {
+        let headers = { "Content-Type": "application/json" };
+        if (result.jwt) headers["Authorization"] = `Bearer ${result.jwt}`;
 
-               let shown = 0;
-               coupons.sort(function(a, b){ return b.rating - a.rating });
-  
-               for (let i = 0; i < Math.min(coupons.length, 3); i++) {
-                 if (coupons[i]) {
-                    showcoupon(coupons[i]);
-                  }
-                }
-  
-                if (coupons.length > 3) {
-                 const temptemplate = document.getElementById("showmore").content.cloneNode(true);
-                  const showmoreButton = temptemplate.querySelector(".showmoreButton");
-  
-                 showmoreButton.addEventListener("click", () => {
-                   for (let i = shown; i < coupons.length; i++) {
-                     showcoupon(coupons[i]);
-                   }
-                   showmoreButton.remove(); 
-                 });
-                 couponSection.appendChild(showmoreButton);
-               }
-          }
-        }
-      })
-      .catch((err) => console.error(err));
-      })
-      .catch(err => console.error("Error hashing domain:", err));
+        fetch(`${server}/check_website?hashedDomain=${hashedDomain}`, { headers })
+          .then(res => res.json())
+          .then(data => {
+            renderCoupons(data, domain); // ✅ now data is defined
+          })
+          .catch(err => console.error("Error fetching coupons:", err));
+      });
+      }).catch(err => console.error("Error hashing domain:", err));
 
   });
+
 
   addCouponButton.addEventListener("click", () => {
     chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
@@ -83,7 +167,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         if(expiryDate){
         fetch(`${server}/add_coupon`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // headers: { "Content-Type": "application/json" },
+          headers: {
+          "Content-Type": "application/json",
+          ...(jwtToken && { "Authorization": `Bearer ${jwtToken}` })},
           body: JSON.stringify({ website, coupon , desc, type , expiryDate}),
         })
           .then((response) => response.json())
@@ -100,7 +187,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         fetch(`${server}/add_coupon`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // headers: { "Content-Type": "application/json" },
+          headers: {
+          "Content-Type": "application/json",
+          ...(jwtToken && { "Authorization": `Bearer ${jwtToken}` })},
           body: JSON.stringify({ website, coupon , desc, type, expiryDate, startDate}),
         })
           .then((response) => response.json())
@@ -114,7 +204,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       }else{
         fetch(`${server}/add_coupon`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // headers: { "Content-Type": "application/json" },
+          headers: {
+          "Content-Type": "application/json",
+          ...(jwtToken && { "Authorization": `Bearer ${jwtToken}` })},
           body: JSON.stringify({ website, coupon , desc, type}),
         })
           .then((response) => response.json())
@@ -178,37 +271,94 @@ document.addEventListener("DOMContentLoaded", async () => {
     couponSection.appendChild(template);
   }
 
+  function renderCoupons(data, domain) {
+  couponSection.innerHTML = ''; // always clear first
+
+  if (data.success && data.coupons.length > 0) {
+    let coupons = data.coupons.filter(c => c.website === domain);
+
+    if (coupons.length === 0) {
+      couponSection.innerHTML = '<p>No coupons available for this website.</p>';
+      return;
+    }
+
+    coupons.sort((a, b) => b.rating - a.rating);
+    const shownCount = Math.min(coupons.length, 3);
+
+    for (let i = 0; i < shownCount; i++) {
+      showcoupon(coupons[i]);
+    }
+
+    if (coupons.length > 3) {
+      const template = document.getElementById("showmore").content.cloneNode(true);
+      const showmoreButton = template.querySelector(".showmoreButton");
+      showmoreButton.addEventListener("click", () => {
+        for (let i = shownCount; i < coupons.length; i++) {
+          showcoupon(coupons[i]);
+        }
+        showmoreButton.remove();
+      });
+      couponSection.appendChild(showmoreButton);
+    }
+  } else {
+    couponSection.innerHTML = '<p>No coupons available for this website.</p>';
+  }
+}
+
+
   function rateCoupon(couponId, ratingChange) {
+
+    if (!jwtToken) {
+      let rated = JSON.parse(localStorage.getItem("ratedCoupons") || "[]");
+      if (rated.includes(couponId)) return alert("You have already rated this coupon!");
+      rated.push(couponId);
+      localStorage.setItem("ratedCoupons", JSON.stringify(rated));
+    }
+
     fetch(`${server}/rate_coupon`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(jwtToken && { "Authorization": `Bearer ${jwtToken}` })
+      },
       body: JSON.stringify({ coupon_id: couponId, rating_change: ratingChange }),
     })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.success) {
+      .then(res => res.json())
+      .then(data => {
+        if (!data.success && data.message === "Already rated") {
+          alert("You have already rated this coupon!");
           const couponElement = document.querySelector(`.coupon[data-id="${couponId}"]`);
           if (couponElement) {
-            if (data.deleted) {
-              couponElement.style.transition = "opacity 0.3s";
-              couponElement.style.opacity = "0";
-              setTimeout(() => couponElement.remove(), 300);
-            } else {
-              const ratingElement = couponElement.querySelector(".rating");
-              const newRating = parseInt(ratingElement.textContent) + ratingChange;
-              ratingElement.textContent = newRating;
-
-              const rateButtons = couponElement.querySelectorAll(".rate-buttons button");
-              rateButtons.forEach((button) => {
-                button.disabled = true;
-                button.style.opacity = "0.5";
-              });
-            }
+            const buttons = couponElement.querySelectorAll(".rate-buttons button");
+            buttons.forEach(btn => {
+              btn.disabled = true;
+              btn.style.opacity = 0.5;
+            });
           }
-        } else {
-          alert("Failed to update rating.");
+          return;
+        }
+
+        if (data.success) {
+          const couponElement = document.querySelector(`.coupon[data-id="${couponId}"]`);
+          if (!couponElement) return;
+
+          if (data.deleted) {
+            couponElement.style.transition = "opacity 0.3s";
+            couponElement.style.opacity = "0";
+            setTimeout(() => couponElement.remove(), 300);
+          } else {
+            const ratingElement = couponElement.querySelector(".rating");
+            ratingElement.textContent = parseInt(ratingElement.textContent) + ratingChange;
+
+            const buttons = couponElement.querySelectorAll(".rate-buttons button");
+            buttons.forEach(btn => {
+              btn.disabled = true;
+              btn.style.opacity = 0.5;
+            });
+          }
         }
       })
-      .catch((err) => console.error("Error updating rating:", err));
+      .catch(err => console.error("Error updating rating:", err));
   }
+
 });

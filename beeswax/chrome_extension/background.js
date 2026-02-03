@@ -1,6 +1,6 @@
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
-  const server = "https://beeswax.onrender.com";
+  const server = "http://localhost:5000";
 
     if (changeInfo.status === "complete" && tab.url) {
       const url = new URL(tab.url);

@@ -77,11 +77,46 @@ textarea {
 
 .showmoreButton{margin-top: 10px;}
 
+
+#auth-bar button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #000000;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#auth-bar button:hover {
+  text-decoration: underline;
+}
+
   </style>
 </head>
 
 <body>
-  <h2>⬡ BeesWax Coupon Finder </h3>
+  <h2>⬡ BeesWax Coupon Finder </h2>
+  <div id="auth-bar" style="display:flex; justify-content:space-evenly; align-items:center; margin-bottom:6px; margin-left:6px">
+  <button id="login-btn" style="width:auto;">Login</button>
+  <button id="signup-btn" style="width:auto;">Sign Up</button>
+</div>
+
+
+<div id="auth-form" style="display:none; flex-direction: column; margin-bottom:10px;">
+  <input id="email-input" type="email" placeholder="Email" style="margin-bottom:5px;">
+  <input id="password-input" type="password" placeholder="Password" style="margin-bottom:5px;">
+  <button id="submit-auth">Submit</button>
+  <button id="cancel-auth">Cancel</button>
+</div>
+
+  <span id="user-status" style="display:none; font-size:12px; opacity:0.8;">
+    Signed in
+  </span>
+
+  <button id="logout-btn" style="display:none; width:auto;">
+    Log out
+  </button>
+
   <div id="section">
     <p>No coupons available for this website.</p>
   </div>
