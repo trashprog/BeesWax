@@ -13,3 +13,15 @@ This is problematic because:
 1) it takes away credit from real services that should be rewarded for your purchase eg influencers 
 2) it takes credit for your sale even if no coupons are found
 3) honey also can hide better deals from you in order to entice eCommerce sites to work with them
+
+
+## Setup (for developers)
+```bash
+# create the environment
+conda create -y -n your_env python=3.10
+
+# activate the environment
+conda activate your_env
+
+# cd to beeswax folder then run this
+pip install -r requirements.txt
